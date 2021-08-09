@@ -1,1 +1,1 @@
-# aws-service-monitor
+# aws-ec2-service-monitor
