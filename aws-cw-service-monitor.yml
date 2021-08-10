@@ -1,0 +1,164 @@
+# CloudFormation Template for CloudWatch Windows Service Monitor
+# Rob Hellyer - Aug 2021
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation Template for CloudWatch Windows Service Monitor.
+
+Resources:
+  # SSM Document to check the service status on guest and write output to CloudWatch.
+  SSMDocument: 
+    Type: AWS::SSM::Document
+    Properties:
+      Content:
+        schemaVersion: '2.2'
+        description: "Check the Windows service status on a given instance."
+        parameters:
+          services:
+            type: "String"
+            description: "(Required) Windows services to check the status of seperted by comma e.g. W3SVC,MSSQLSERVER."
+        mainSteps:
+        - action: "aws:runPowerShellScript"
+          name: "runPowerShellScript"
+          inputs:
+            timeoutSeconds: "60" # May need adjusting with the number of instances and services monitored.
+            runCommand:
+            - "Import-Module AWSPowerShell \n"
+            - "Set-DefaultAWSRegion -Region eu-west-2 \n" # Set CloudWatch region here.
+            - "$securityMetadata = \"http://169.254.169.254/latest/meta-data/iam/security-credentials\"\
+              \ \n"
+            - "$credentialsList = (Invoke-WebRequest -uri $securityMetadata -UseBasicParsing).Content.Split()\
+              \ \n"
+            - "$credentials = (Invoke-WebRequest -uri \"$securityMetadata/$($credentialsList[0])\"\
+              \ -UseBasicParsing).Content | ConvertFrom-Json \n"
+            - "Set-AWSCredential -StoreAs InstanceProfile -AccessKey $credentials.AccessKeyId\
+              \ -SecretKey $credentials.SecretAccessKey -SessionToken $credentials.Token \n"
+            - "$namespace = 'WindowsServices' \n" # Namespace for CW Metrics.
+            - "$logs = \"C:\\ProgramData\\Amazon\\AmazonCloudWatchAgent\\Logs\\cloudwatch-service-monitoring.log\"\
+              \ \n" # Log path.
+            - "$instanceId = (New-Object System.Net.WebClient).DownloadString(\"http://169.254.169.254/latest/meta-data/instance-id\"\
+              ) \n"
+            - "$instanceDimension = New-Object -TypeName Amazon.CloudWatch.Model.Dimension;\
+              \ \n"
+            - "$instanceDimension.Name = \"InstanceId\"; \n"
+            - "$instanceDimension.Value = $instanceId; \n"
+            - " $metrics = @(); \n"
+            - " $runningServices = Get-Service {{ services }} | ? { $_.Status -eq 'Running'\
+              \ } \n"
+            - " $runningServices | % { \n"
+            - " $dimensions = @(); \n"
+            - " $serviceDimension = New-Object -TypeName Amazon.CloudWatch.Model.Dimension;\
+              \ \n"
+            - " $serviceDimension.Name = \"Service\" \n"
+            - " $serviceDimension.Value = $_.Name; \n"
+            - " $dimensions += $instanceDimension; \n"
+            - " $dimensions += $serviceDimension; \n"
+            - " $metric = New-Object -TypeName Amazon.CloudWatch.Model.MetricDatum; \n"
+            - " $metric.Timestamp = [DateTime]::UtcNow; \n"
+            - " $metric.MetricName = 'Status'; \n"
+            - " $metric.Value = 1; \n"
+            - " $metric.Dimensions = $dimensions; \n"
+            - " $metrics += $metric; \n"
+            - " } \n"
+            - " try { \n"
+            - " Write-CWMetricData -Namespace $namespace -MetricData $metrics -Verbose \n"
+            - " } catch { \n"
+            - " Write-Output \"CWMetric Failed\" | Out-File -FilePath $logs \n"
+            - " }"
+      DocumentType: Command
+      Name: 'WindowsServiceMonitor'
+
+  # IAM Role for Lambda function.
+  LambdaIAMRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies: 
+        - PolicyName: WinSvcMonLambdaPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'ssm:SendCommand'
+                Resource: 
+                  - 'arn:aws:ssm:*:*:document/WindowsServiceMonitor'
+                  - 'arn:aws:ec2:*:*:instance/*'
+              - Effect: Allow
+                Action:
+                  - 'ec2:Describe*'
+                Resource: '*'
+      RoleName: WinSvcMonLambdaRole
+
+  # Lambda function.
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.8
+      Handler: index.lambda_handler
+      FunctionName: WinSvcMonLambdaFunction
+      Role: 
+        Fn::GetAtt: 
+          - "LambdaIAMRole"
+          - "Arn"
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          ec2 = boto3.resource('ec2')
+          ssm = boto3.client('ssm' )
+
+          # Return instances that are tagged to enable service monitoring.
+          def lambda_handler(event, context):
+              filters = [{
+                  'Name': 'tag:Monitor',
+                  'Values': ['true']
+                }]
+
+              instances = ec2.instances.filter(Filters=filters)
+
+              monitoredInstances = [instance.id for instance in instances]
+              
+              # Check if any instances are returned.
+              print(monitoredInstances)
+
+              for instance in instances:
+                  for tag in instance.tags:
+                    if tag["Key"] == 'Services':
+                          services = tag["Value"]
+                          print(instance.id,services)
+                          runCommand = ssm.send_command( InstanceIds=[ instance.id ], DocumentName='WindowsServiceMonitor', Parameters={ "services":[ services ]  } )
+
+  # EventBridge rule.
+  EBRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      ScheduleExpression: "rate(15 minutes)" # Ammend for desired run rate.
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "LambdaFunction"
+              - "Arn"
+          Id: "Function1" # Can be anything.
+  
+  # EventBridge rule permissions.
+  EBLambdaPermissions: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: !Ref "LambdaFunction"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "EBRule"
+          - "Arn"
+  
