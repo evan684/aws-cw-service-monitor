@@ -1,5 +1,6 @@
 # CloudFormation Template for CloudWatch Windows Service Monitor
 # Rob Hellyer - Aug 2021
+# Edited by Evan Shearer Mar 2 2023
 
 AWSTemplateFormatVersion: '2010-09-09'
 Description: CloudFormation Template for CloudWatch Windows Service Monitor.
@@ -23,7 +24,7 @@ Resources:
             timeoutSeconds: "60" # May need adjusting with the number of instances and services monitored.
             runCommand:
             - "Import-Module AWSPowerShell \n"
-            - "Set-DefaultAWSRegion -Region eu-west-2 \n" # Set CloudWatch region here.
+            - "Set-DefaultAWSRegion -Region us-west-2 \n" # Set CloudWatch region here.
             - "$securityMetadata = \"http://169.254.169.254/latest/meta-data/iam/security-credentials\"\
               \ \n"
             - "$credentialsList = (Invoke-WebRequest -uri $securityMetadata -UseBasicParsing).Content.Split()\
@@ -118,9 +119,14 @@ Resources:
           # Return instances that are tagged to enable service monitoring.
           def lambda_handler(event, context):
               filters = [{
-                  'Name': 'tag:Monitor',
-                  'Values': ['true']
-                }]
+                  'Name': 'tag:MonitorWindowsServices',
+                  'Values': ['Enabled']
+                },
+                {
+                  'Name': 'instance-state-name',
+                  'Values': ['running']
+                }
+                ]
 
               instances = ec2.instances.filter(Filters=filters)
 
@@ -162,3 +168,4 @@ Resources:
           - "EBRule"
           - "Arn"
   
+
