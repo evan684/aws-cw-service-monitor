@@ -1,6 +1,6 @@
 # CloudFormation Template for CloudWatch Windows Service Monitor
 # Rob Hellyer - Aug 2021
-# Edited by Evan Shearer Mar 2 2023
+# Edited by Evan Shearer Mar 2023
 
 AWSTemplateFormatVersion: '2010-09-09'
 Description: CloudFormation Template for CloudWatch Windows Service Monitor.
@@ -45,6 +45,8 @@ Resources:
             - " $metrics = @(); \n"
             - " $runningServices = Get-Service {{ services }} | ? { $_.Status -eq 'Running'\
               \ } \n"
+            - " $stoppedServices = Get-Service {{ services }} | ? { $_.Status -eq 'Stopped'\
+              \ } \n"
             - " $runningServices | % { \n"
             - " $dimensions = @(); \n"
             - " $serviceDimension = New-Object -TypeName Amazon.CloudWatch.Model.Dimension;\
@@ -57,6 +59,21 @@ Resources:
             - " $metric.Timestamp = [DateTime]::UtcNow; \n"
             - " $metric.MetricName = 'Status'; \n"
             - " $metric.Value = 1; \n"
+            - " $metric.Dimensions = $dimensions; \n"
+            - " $metrics += $metric; \n"
+            - " } \n"
+            - " $stoppedServices | % { \n"
+            - " $dimensions = @(); \n"
+            - " $serviceDimension = New-Object -TypeName Amazon.CloudWatch.Model.Dimension;\
+              \ \n"
+            - " $serviceDimension.Name = \"Service\" \n"
+            - " $serviceDimension.Value = $_.Name; \n"
+            - " $dimensions += $instanceDimension; \n"
+            - " $dimensions += $serviceDimension; \n"
+            - " $metric = New-Object -TypeName Amazon.CloudWatch.Model.MetricDatum; \n"
+            - " $metric.Timestamp = [DateTime]::UtcNow; \n"
+            - " $metric.MetricName = 'Status'; \n"
+            - " $metric.Value = 0; \n"
             - " $metric.Dimensions = $dimensions; \n"
             - " $metrics += $metric; \n"
             - " } \n"
@@ -146,7 +163,7 @@ Resources:
   EBRule: 
     Type: AWS::Events::Rule
     Properties: 
-      ScheduleExpression: "rate(15 minutes)" # Ammend for desired run rate.
+      ScheduleExpression: "rate(5 minutes)" # Ammend for desired run rate.
       State: "ENABLED"
       Targets: 
         - 
@@ -167,5 +184,6 @@ Resources:
         Fn::GetAtt: 
           - "EBRule"
           - "Arn"
+  
   
 
