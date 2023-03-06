@@ -1,6 +1,6 @@
 # CloudFormation Template for CloudWatch Windows Service Monitor
 # Rob Hellyer - Aug 2021
-# Edited by Evan Shearer Mar 2023
+# Edited by Evan Shearer Mar 2 2023
 
 AWSTemplateFormatVersion: '2010-09-09'
 Description: CloudFormation Template for CloudWatch Windows Service Monitor.
@@ -113,6 +113,13 @@ Resources:
                 Action:
                   - 'ec2:Describe*'
                 Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'logs:*'
+                Resource: 
+                  - 'arn:aws:logs:*:*:destination:*'
+                  - 'arn:aws:logs:*:*:log-group:*'
+                  - 'arn:aws:logs:*:*:log-group:*:log-stream:*'
       RoleName: WinSvcMonLambdaRole
 
   # Lambda function.
@@ -184,6 +191,3 @@ Resources:
         Fn::GetAtt: 
           - "EBRule"
           - "Arn"
-  
-  
-
