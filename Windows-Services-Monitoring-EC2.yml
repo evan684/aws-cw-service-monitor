@@ -153,16 +153,22 @@ Resources:
               monitoredInstances = [instance.id for instance in instances]
               
               # Check if any instances are returned.
+              servicesTagValue = []
+              extraServicesList = []
               print(monitoredInstances)
-
               for instance in instances:
                   for tag in instance.tags:
                       if tag["Key"] == 'Services':
                           servicesTagValue = tag["Value"]
                           servicesList = re.split('\s|,|;', servicesTagValue)
-                          services = ','.join(servicesList)
-                          print(instance.id,services)
-                          runCommand = ssm.send_command( InstanceIds=[ instance.id ], DocumentName='WindowsServiceMonitor', Parameters={ "services":[ services ]  } )
+                      elif tag["Key"] == 'ExtraServices':
+                          extraServicesTagValue = tag["Value"]
+                          extraServicesList = re.split('\s|,|;', extraServicesTagValue)
+                  if servicesList or extraServicesList:
+                      fullServicesList = servicesList + extraServicesList
+                      services = ','.join(fullServicesList)
+                      print(instance.id,services)
+                      runCommand = ssm.send_command( InstanceIds=[ instance.id ], DocumentName='WindowsServiceMonitor', Parameters={ "services":[ services ]  } )
 
   # EventBridge rule.
   EBRule: 
