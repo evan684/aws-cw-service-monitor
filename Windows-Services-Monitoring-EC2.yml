@@ -29,17 +29,12 @@ Resources:
               \ \n"
             - "$credentialsList = (Invoke-WebRequest -uri $securityMetadata -UseBasicParsing).Content.Split()\
               \ \n"
-            - "$credentials = (Invoke-WebRequest -uri \"$securityMetadata/$($credentialsList[0])\"\
-              \ -UseBasicParsing).Content | ConvertFrom-Json \n"
-            - "Set-AWSCredential -StoreAs InstanceProfile -AccessKey $credentials.AccessKeyId\
-              \ -SecretKey $credentials.SecretAccessKey -SessionToken $credentials.Token \n"
+            - "$credentials = (Invoke-WebRequest -uri \"$securityMetadata/$($credentialsList[0])\" -UseBasicParsing).Content | ConvertFrom-Json \n"
+            - "Set-AWSCredential -StoreAs InstanceProfile -AccessKey $credentials.AccessKeyId -SecretKey $credentials.SecretAccessKey -SessionToken $credentials.Token \n"
             - "$namespace = 'WindowsServices' \n" # Namespace for CW Metrics.
-            - "$logs = \"C:\\ProgramData\\Amazon\\AmazonCloudWatchAgent\\Logs\\cloudwatch-service-monitoring.log\"\
-              \ \n" # Log path.
-            - "$instanceId = (New-Object System.Net.WebClient).DownloadString(\"http://169.254.169.254/latest/meta-data/instance-id\"\
-              ) \n"
-            - "$instanceDimension = New-Object -TypeName Amazon.CloudWatch.Model.Dimension;\
-              \ \n"
+            - "$logs = \"C:\\ProgramData\\Amazon\\AmazonCloudWatchAgent\\Logs\\cloudwatch-service-monitoring.log\" \n" # Log path.
+            - "$instanceId = (New-Object System.Net.WebClient).DownloadString(\"http://169.254.169.254/latest/meta-data/instance-id\") \n"
+            - "$instanceDimension = New-Object -TypeName Amazon.CloudWatch.Model.Dimension; \n"
             - "$instanceDimension.Name = \"InstanceId\"; \n"
             - "$instanceDimension.Value = $instanceId; \n"
             - " $metrics = @(); \n"
@@ -137,6 +132,7 @@ Resources:
         ZipFile: |
           import boto3
           import json
+          import re
           ec2 = boto3.resource('ec2')
           ssm = boto3.client('ssm' )
 
@@ -161,8 +157,10 @@ Resources:
 
               for instance in instances:
                   for tag in instance.tags:
-                    if tag["Key"] == 'Services':
-                          services = tag["Value"]
+                      if tag["Key"] == 'Services':
+                          servicesTagValue = tag["Value"]
+                          servicesList = re.split('\s|,|;', servicesTagValue)
+                          services = ','.join(servicesList)
                           print(instance.id,services)
                           runCommand = ssm.send_command( InstanceIds=[ instance.id ], DocumentName='WindowsServiceMonitor', Parameters={ "services":[ services ]  } )
 
